@@ -249,7 +249,10 @@ static void zmk_update_lowest_charge_work(struct k_work *work) {
     uint8_t new_lowest_level = UINT8_MAX;
 
     if (!battery_parts[BAS_CENTRAL_INDEX].hidden) {
-        new_lowest_level = zmk_battery_state_of_charge();
+        uint8_t level = zmk_battery_state_of_charge();
+        if (level != 0) {
+            new_lowest_level = level;
+        }
     }
 
     for (size_t i = 0; i < CONFIG_ZMK_SPLIT_BLE_CENTRAL_PERIPHERALS; i++) {
@@ -327,14 +330,7 @@ int peripheral_batt_report_lvl_listener(const zmk_event_t *eh) {
 #endif // IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING_BLE)
 
 #if IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING_SPLIT_REPORT_LOWEST_CHARGE)
-    if (ev->state_of_charge != 0) {
-        // Ugly workaround to not wake up the host on keyboard part disconnect, so users don't need
-        // to turn off their keyboard parts before sleeping/hibernating their computer. We ideally
-        // should differentiate between disconnect and 0% charge. This shouldn't be an issue for
-        // most users, if a part is dead due to low battery, it likely was reporting <5% before
-        // disconnecting so user is already aware.
-        submit_lowest_charge_work();
-    }
+    submit_lowest_charge_work();
 #endif
 
     return ZMK_EV_EVENT_BUBBLE;

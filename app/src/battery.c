@@ -113,15 +113,13 @@ static int zmk_battery_update(const struct device *battery) {
 
 #if IS_ENABLED(CONFIG_BT_BAS)
     if (bt_bas_get_battery_level() != last_state_of_charge) {
-        if (bt_bas_get_battery_level() != last_state_of_charge) {
-            LOG_DBG("Setting BAS GATT battery level to %d.", last_state_of_charge);
+        LOG_DBG("Setting BAS GATT battery level to %d.", last_state_of_charge);
 
-            rc = bt_bas_set_battery_level(last_state_of_charge);
+        rc = bt_bas_set_battery_level(last_state_of_charge);
 
-            if (rc != 0) {
-                LOG_WRN("Failed to set BAS GATT battery level (err %d)", rc);
-                return rc;
-            }
+        if (rc != 0) {
+            LOG_WRN("Failed to set BAS GATT battery level (err %d)", rc);
+            return rc;
         }
     }
 #endif
