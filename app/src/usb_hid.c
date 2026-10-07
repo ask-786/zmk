@@ -24,6 +24,11 @@
 
 #include <zmk/event_manager.h>
 
+#if IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING_USB)
+#include <zephyr/sys/atomic.h>
+#include <zmk/events/usb_conn_state_changed.h>
+#endif // IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING_USB)
+
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 static const struct device *hid_dev;
@@ -264,6 +269,10 @@ int zmk_usb_hid_send_mouse_report() {
 #endif // IS_ENABLED(CONFIG_ZMK_POINTING)
 
 #if IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING_USB)
+// Battery reports dropped while the host was suspended. They are sent once it
+// resumes, so it doesn't keep showing a stale level or charge state.
+static ATOMIC_DEFINE(pending_battery_reports, ZMK_HID_MAX_BATTERIES);
+
 int zmk_usb_hid_send_battery_report_by_index(uint8_t battery_index) {
 #if IS_ENABLED(CONFIG_ZMK_USB_BOOT)
     if (hid_protocol == HID_PROTOCOL_BOOT) {
@@ -275,11 +284,33 @@ int zmk_usb_hid_send_battery_report_by_index(uint8_t battery_index) {
     if (report == NULL) {
         return -EINVAL;
     }
-    return zmk_usb_hid_send_report_wakeup((uint8_t *)report, sizeof(*report), false);
+    int err = zmk_usb_hid_send_report_wakeup((uint8_t *)report, sizeof(*report), false);
+    if (err == -EAGAIN) {
+        atomic_set_bit(pending_battery_reports, battery_index);
+    }
+
+    return err;
 }
 
 // Legacy function for backwards compatibility - sends first battery
 int zmk_usb_hid_send_battery_report() { return zmk_usb_hid_send_battery_report_by_index(0); }
+
+static int usb_hid_battery_resume_listener(const zmk_event_t *eh) {
+    if (!zmk_usb_is_hid_ready() || zmk_usb_get_status() == USB_DC_SUSPEND) {
+        return ZMK_EV_EVENT_BUBBLE;
+    }
+
+    for (uint8_t i = 0; i < ZMK_HID_MAX_BATTERIES; i++) {
+        if (atomic_test_and_clear_bit(pending_battery_reports, i)) {
+            zmk_usb_hid_send_battery_report_by_index(i);
+        }
+    }
+
+    return ZMK_EV_EVENT_BUBBLE;
+}
+
+ZMK_LISTENER(usb_hid_battery_resume, usb_hid_battery_resume_listener);
+ZMK_SUBSCRIPTION(usb_hid_battery_resume, zmk_usb_conn_state_changed);
 #endif // IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING_USB)
 
 static int zmk_usb_hid_init(void) {
